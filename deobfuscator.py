@@ -78,17 +78,50 @@ RE_SCRAMBLED_BLOCK = re.compile(
 )
 
 
-# Regex for lines to remove entirely
-RE_LINES_TO_REMOVE = [
+# Regex for Lines/Blocks to Remove (Applied *AFTER* Character Deobfuscation)
+# These patterns match the DEOBFUSCATED forms of the junk/anti-method code.
+RE_JUNK_TO_REMOVE = [
+    # Static lines
     re.compile(r"^\s*::Made by K\.Dot using SomalifuscatorV2", re.IGNORECASE),
     re.compile(r"^\s*chcp 65001 > nul", re.IGNORECASE),
-    re.compile(r"^\s*set\s+[a-z]=[a-z]", re.IGNORECASE), # Caesar defs
+    re.compile(r"^\s*set\s+[a-z]=[a-z]", re.IGNORECASE), # Base Caesar defs
     re.compile(r"^\s*>nul 2>&1 && exit >nul 2>&1 \|\| cls", re.IGNORECASE), # Initial check line
-    # Add patterns for AntiChanges, DeadCode etc. if they become known or identifiable
-    re.compile(r"^\s*rem ANTICHANGES MARKER", re.IGNORECASE), # Example placeholder
-    re.compile(r"^\s*rem DEADCODE MARKER", re.IGNORECASE), # Example placeholder
     re.compile(r"^\s*(goto\s+:eof|exit\s*/b\s*0)\s*$", re.IGNORECASE), # Remove scrambler's goto EOF
+
+    # AntiConsole VBS block lines
+    re.compile(r'^\s*if defined redo goto :KDOTUP', re.IGNORECASE),
+    re.compile(r'^\s*set "redo=1"', re.IGNORECASE),
+    re.compile(r'^\s*echo CreateObject\("Wscript\.Shell"\)\.Run "%~f0", 0, True > temp\.vbs', re.IGNORECASE),
+    re.compile(r'^\s*cscript //nologo temp\.vbs', re.IGNORECASE),
+    re.compile(r'^\s*del temp\.vbs', re.IGNORECASE),
+    re.compile(r'^\s*:KDOTUP', re.IGNORECASE),
+
+    # AntiChanges checks (deobfuscated forms)
+    re.compile(r'^\s*echo @echo off >> kdot\w+\.bat', re.IGNORECASE), # Start of first_line_echo_check
+    re.compile(r'^\s*echo %cmdcmdline% \| find /i "%~f0">nul \|\| exit /b 1', re.IGNORECASE), # double_click_check
+    re.compile(r'^\s*echo %logonserver% \| findstr /i "DADDYSERVER" >nul && exit', re.IGNORECASE), # anti_triage
+    re.compile(r'^\s*ping .* www\.google\.com .* \|\| exit', re.IGNORECASE), # anti_wifi
+
+    # AntiChanges VM checks (common patterns)
+    re.compile(r'^\s*for /f "tokens=2 delims==" %%a in \(\'wmic computersystem get manufacturer /value\'\) do set manufacturer=%%a', re.IGNORECASE),
+    re.compile(r'^\s*if "%manufacturer%"=="Microsoft Corporation" if "%model%"=="Virtual Machine" exit', re.IGNORECASE),
+    re.compile(r'^\s*if "%manufacturer%"=="VMware, Inc\." exit', re.IGNORECASE),
+    re.compile(r'^\s*if "%model%"=="VirtualBox" exit', re.IGNORECASE),
+    re.compile(r'^\s*powershell.*Get-WmiObject Win32_ComputerSystem.*Virtual.*taskkill', re.IGNORECASE),
+    re.compile(r'^\s*powershell.*gcim Win32_PhysicalMemory.*sum /1gb -lt 4.*taskkill', re.IGNORECASE), # RAM check
+    # Generic PowerShell invocation removal (catches AntiChanges byte_check and some vm_test)
+    re.compile(r'^\s*powershell(\.exe)?\s+(-NoLogo|-NoP|-NonI|-W Hidden|-EP Bypass|-EncodedCommand|-Command)\s+', re.IGNORECASE),
+    # Generic wmic call removal (if specific checks missed)
+    re.compile(r'^\s*wmic\s+', re.IGNORECASE),
+
+    # Caesar `for /l` wrapper
+    re.compile(r'^\s*for /l %%\w in \(\d+, \d+, \d+\) do \( set \w+=\w+ \)', re.IGNORECASE), # Matches simple form like set a=b
+
+    # Placeholders if used
+    re.compile(r"^\s*rem ANTICHANGES MARKER", re.IGNORECASE),
+    re.compile(r"^\s*rem DEADCODE MARKER", re.IGNORECASE),
 ]
+
 
 # --- Helper Functions ---
 
@@ -99,40 +132,55 @@ def log_verbose(*args):
 
 def safe_eval_batch_math(expression: str) -> Optional[int]:
     """
-    Attempts to safely evaluate a batch 'set /a' math expression.
-    Handles basic arithmetic and common bitwise operators. Limited safety.
+    Enhanced evaluator for Batch 'set /a' math expressions.
+    Attempts to handle Batch operators and number formats. Limited safety.
     """
-    # Sanitize: Allow numbers, basic operators, parentheses, common bitwise ops
-    # Remove spaces for easier parsing/eval
-    expression = expression.replace(" ", "")
-    
-    # Basic validation: Check for potentially harmful characters/keywords
-    # This is NOT foolproof security, just a basic guardrail.
-    allowed_chars = set("0123456789+-*/%()&|^<>") 
-    if not all(c in allowed_chars for c in expression):
-         print(f"Warning: Potentially unsafe characters found in math expression: '{expression}'. Skipping evaluation.")
-         return None
+    original_expression = expression
+    expression = expression.strip()
+    if not expression: return None
 
-    # Replace Batch bitwise operators with Python equivalents if possible
-    # Note: Batch precedence might differ from Python's!
-    # This is a simplification and might be incorrect for complex cases.
-    py_expr = expression.replace('^', '**') # Example: Treat ^ as exponentiation (common mistake)
-                                            # Actual Batch ^ is XOR. Add specific handling if needed.
-    # Python uses <<, >>, &, |, ^ for bitwise directly.
+    log_verbose(f"Attempting to evaluate math: {original_expression}")
+
+    # Replace Batch operators with Python equivalents BEFORE parsing numbers
+    # Handle potential spaces around operators
+    expression = re.sub(r'\s*\^\^\s*', '^', expression) # Batch XOR ^^ -> Python XOR ^
+    expression = re.sub(r'\s*-\s*', '-', expression)
+    expression = re.sub(r'\s*\+\s*', '+', expression)
+    expression = re.sub(r'\s*\*\s*', '*', expression)
+    expression = re.sub(r'\s*/\s*', '//', expression) # Batch / -> Python integer division //
+    expression = re.sub(r'\s*%\s*', '%', expression) # Modulo
+    expression = re.sub(r'\s*<<\s*', '<<', expression) # Left shift
+    expression = re.sub(r'\s*>>\s*', '>>', expression) # Right shift
+    expression = re.sub(r'\s*&\s*', '&', expression)   # Bitwise AND
+    expression = re.sub(r'\s*\|\s*', '|', expression)  # Bitwise OR
+    # Batch NOT `~` needs careful handling. Python `~` acts differently on negative numbers.
+    # We will try letting eval handle it directly on numbers.
+
+    # Use a restricted eval context
+    safe_globals = {"__builtins__": None}
+    safe_locals = {} # No external variables allowed
+
+    processed_expr = expression # Start with the operator-replaced string
 
     try:
-        # Use a limited context for eval
-        result = eval(py_expr, {"__builtins__": None}, {'math': math}) # Provide math module if needed
+        # Let eval handle number parsing (0x..., 0..., decimal) and operators
+        result = eval(processed_expr, safe_globals, safe_locals)
+        log_verbose(f"Evaluated '{original_expression}' (Python='{processed_expr}') to: {result}")
+        # Ensure result is integer
         return int(result)
-    except (SyntaxError, TypeError, NameError, ValueError, OverflowError, Exception) as e:
-        print(f"Warning: Could not evaluate math expression '{expression}' (Python: '{py_expr}'): {e}. Manual analysis needed.")
+    except OverflowError:
+         # Handle potential overflow if numbers get extremely large
+         print(f"Warning: Math evaluation resulted in overflow for '{original_expression}'")
+         return None # Indicate failure
+    except (SyntaxError, TypeError, NameError, ValueError, Exception) as e:
+        # Catch a wider range of eval errors
+        print(f"Warning: Could not evaluate math expression '{original_expression}' (Processed='{processed_expr}'): {type(e).__name__} - {e}")
         return None
 
 # --- Deobfuscation Core Functions ---
 
 def read_and_preprocess(file_path: Path) -> Optional[List[str]]:
     """Reads the file, handles BOM and encoding."""
-    # (Implementation mostly unchanged from previous version)
     try:
         content_bytes = file_path.read_bytes()
     except IOError as e:
@@ -150,14 +198,22 @@ def read_and_preprocess(file_path: Path) -> Optional[List[str]]:
             enc = 'utf-8'
             log_verbose("Detected UTF-8 encoding.")
         except UnicodeDecodeError:
-            enc = 'cp1252' # Or locale.getpreferredencoding()
-            log_verbose(f"UTF-8 decode failed, trying fallback: {enc}")
+            # Try common Windows default encoding
+            try:
+                 import locale
+                 enc = locale.getpreferredencoding(False)
+                 log_verbose(f"UTF-8 decode failed, trying system preferred: {enc}")
+            except Exception:
+                 enc = 'cp1252' # Ultimate fallback
+                 log_verbose(f"UTF-8 and system preferred failed, trying fallback: {enc}")
+
         except Exception as e:
             print(f"Error detecting encoding: {e}")
             return None
 
     try:
-        content = content_bytes.decode(enc, errors='ignore')
+        # Use 'replace' on decode errors for more resilience
+        content = content_bytes.decode(enc, errors='replace')
         lines = content.splitlines()
         print(f"Read {len(lines)} lines using {enc} encoding.")
         return lines
@@ -168,62 +224,73 @@ def read_and_preprocess(file_path: Path) -> Optional[List[str]]:
 
 def extract_initial_settings(lines: List[str]) -> Dict:
     """Finds KDOT value and builds the reverse Caesar map."""
-    # (Implementation mostly unchanged, added verbose logging)
     settings = {"kdot_value": None, "reverse_caesar_map": {}}
+    kdot_found = False
+    caesar_map_count = 0
 
     for i, line in enumerate(lines):
-        if settings["kdot_value"] is None:
+        # Find KDOT only once
+        if not kdot_found:
             kdot_match = RE_KDOT.match(line)
             if kdot_match:
                 settings["kdot_value"] = kdot_match.group(1)
                 log_verbose(f"Found KDOT value at line {i+1}: {settings['kdot_value']}")
+                kdot_found = True # Stop searching for KDOT
 
+        # Find Caesar definitions
         caesar_match = RE_CAESAR_DEF.match(line)
         if caesar_match:
             original_char = caesar_match.group(1).lower()
             obfuscated_char = caesar_match.group(2).lower()
-            if obfuscated_char in settings["reverse_caesar_map"] and \
-               settings["reverse_caesar_map"][obfuscated_char] != original_char:
-                 print(f"Warning: Conflicting Caesar definition for '{obfuscated_char}' at line {i+1}. Keeping previous.")
-            elif obfuscated_char not in settings["reverse_caesar_map"]:
+            # Store only the first definition found for each obfuscated char
+            if obfuscated_char not in settings["reverse_caesar_map"]:
                 settings["reverse_caesar_map"][obfuscated_char] = original_char
                 log_verbose(f"Found Caesar mapping at line {i+1}: {obfuscated_char} -> {original_char}")
+                caesar_map_count += 1
+            elif settings["reverse_caesar_map"][obfuscated_char] != original_char:
+                 # Log conflict but don't overwrite, assume first is correct
+                 log_verbose(f"Ignoring conflicting Caesar definition for '{obfuscated_char}' at line {i+1}.")
 
     if not settings["kdot_value"]:
-        print("Warning: KDOT variable definition not found.")
+        print("Warning: KDOT variable definition ('set KDOT=...') was not found. KDOT slicing cannot be deobfuscated.")
     if not settings["reverse_caesar_map"]:
-        print("Warning: Caesar cipher definitions not found.")
+        print("Warning: Caesar cipher definitions ('set a=b', etc.) were not found. Caesar substitution cannot be deobfuscated.")
     else:
         print(f"Built reverse Caesar map with {len(settings['reverse_caesar_map'])} entries.")
 
     return settings
 
 # --- Character Deobfuscation Helpers ---
-# (get_char_from_env_slice, get_char_from_kdot, get_char_from_caesar unchanged)
 def get_char_from_env_slice(match: re.Match) -> str:
     """Helper to resolve environment variable slicing."""
     var_name = match.group(1).upper()
     try:
         index = int(match.group(2))
-    except ValueError: return match.group(0)
+    except ValueError: return match.group(0) # Should not happen with regex, but safety
 
     if var_name in ENV_VAR_VALUES:
         value = ENV_VAR_VALUES[var_name]
         try:
             actual_index = len(value) + index if index < 0 else index
             if 0 <= actual_index < len(value): return value[actual_index]
-            else: print(f"Warning: Index {index} out of bounds for {var_name} ('{value}')"); return ""
-        except IndexError: print(f"Warning: IndexError for {var_name}:~{index},1"); return ""
-    else: print(f"Warning: Unknown environment variable '{var_name}' in slice: {match.group(0)}"); return match.group(0)
+            else: log_verbose(f"Warning: Index {index} out of bounds for env var {var_name}"); return ""
+        except IndexError: log_verbose(f"Warning: IndexError for {var_name}:~{index},1"); return "" # Should be caught above
+    else:
+        log_verbose(f"Warning: Unknown environment variable '{var_name}' in slice: {match.group(0)}")
+        return match.group(0) # Return original if var unknown
 
 def get_char_from_kdot(match: re.Match, kdot_value: Optional[str]) -> str:
     """Helper to resolve KDOT variable slicing."""
-    if not kdot_value: print("Warning: KDOT value unknown, cannot resolve KDOT slice."); return match.group(0)
+    if not kdot_value:
+        # Warning printed during settings extraction, avoid repeating here
+        return match.group(0)
     try:
         index = int(match.group(1))
         if 0 <= index < len(kdot_value): return kdot_value[index]
-        else: print(f"Warning: KDOT index {index} out of bounds."); return ""
-    except (ValueError, IndexError): print(f"Warning: Invalid KDOT slice: {match.group(0)}"); return match.group(0)
+        else: log_verbose(f"Warning: KDOT index {index} out of bounds."); return ""
+    except (ValueError, IndexError): # Catch potential errors if regex somehow allows bad index
+        log_verbose(f"Warning: Invalid KDOT slice index from regex match: {match.group(0)}")
+        return match.group(0)
 
 def get_char_from_caesar(match: re.Match, reverse_map: Dict) -> str:
     """Helper to resolve Caesar cipher characters."""
@@ -231,58 +298,64 @@ def get_char_from_caesar(match: re.Match, reverse_map: Dict) -> str:
     if obfuscated_char in reverse_map:
         original_char = reverse_map[obfuscated_char]
         return original_char.upper() if is_upper_marker else original_char
-    else: print(f"Warning: Character '{obfuscated_char}' not in reverse Caesar map."); return match.group(0)
+    else:
+        # Warning printed during settings extraction if map is empty
+        log_verbose(f"Warning: Character '{obfuscated_char}' not found in reverse Caesar map.")
+        return match.group(0) # Return original if not found
 # ---
 
 def deobfuscate_line_characters(line: str, settings: Dict) -> str:
     """Applies character deobfuscation rules iteratively to a single line."""
     kdot_value = settings.get("kdot_value")
     reverse_caesar_map = settings.get("reverse_caesar_map", {})
+    # Avoid processing if essential settings are missing
+    if not kdot_value and not reverse_caesar_map and not any(v in line for v in ENV_VAR_VALUES):
+         # If no settings and no clear env vars, likely little to do
+         # Still run simple junk removal though
+         pass
+
     original_line = line
 
     # --- Pass 1: Specific Slices and Caesar ---
     def replace_callback(match):
-        # Determine which sub-pattern matched by checking which capture groups are non-None
-        # Group indices align with the order in RE_COMBINED_SPECIFIC_CHAR_OBF
-        if match.group(2): # Matched RE_ENV_SLICE (group 1 is the whole slice, 2 is var_name, 3 is index)
-            # Re-match the specific pattern to get named groups easily if needed, or use indices
+        # Determine which sub-pattern matched by checking capture groups
+        if match.group(2): # Matched RE_ENV_SLICE
             env_match = RE_ENV_SLICE.match(match.group(1))
             return get_char_from_env_slice(env_match) if env_match else match.group(0)
-        elif match.group(5): # Matched RE_KDOT_SLICE (group 4 whole slice, 5 index)
+        elif match.group(5): # Matched RE_KDOT_SLICE
             kdot_match = RE_KDOT_SLICE.match(match.group(4))
             return get_char_from_kdot(kdot_match, kdot_value) if kdot_match else match.group(0)
-        elif match.group(7): # Matched RE_CAESAR_JUNK (group 6 whole, 7 char, 8 marker '1')
+        elif match.group(7): # Matched RE_CAESAR_JUNK
             caesar_match = RE_CAESAR_JUNK.match(match.group(6))
             return get_char_from_caesar(caesar_match, reverse_caesar_map) if caesar_match else match.group(0)
-        else: # Should not happen
-            return match.group(0)
+        else: return match.group(0) # Should not happen
 
 
     passes = 0
-    max_passes = 15 # Increase slightly for potentially deeper nesting
+    max_passes = 15 # Safety break for potential infinite loops
     last_line = None
     processed_line = line
-    while processed_line != last_line and passes < max_passes:
-        last_line = processed_line
-        processed_line = RE_COMBINED_SPECIFIC_CHAR_OBF.sub(replace_callback, last_line)
-        passes += 1
-        # log_verbose(f"  Pass {passes} specific: {processed_line[:80]}...") # Debugging
+    # Only iterate if there are patterns to potentially match
+    if kdot_value or reverse_caesar_map or any(f"%{v}:~" in line for v in ENV_VAR_VALUES):
+        while processed_line != last_line and passes < max_passes:
+            last_line = processed_line
+            processed_line = RE_COMBINED_SPECIFIC_CHAR_OBF.sub(replace_callback, last_line)
+            passes += 1
+        if passes >= max_passes and processed_line != last_line:
+            print(f"Warning: Max substitution passes ({max_passes}) reached for specific patterns: {original_line[:80]}...")
 
-    if passes >= max_passes and processed_line != last_line:
-        print(f"Warning: Max substitution passes ({max_passes}) reached for specific patterns on line: {original_line[:80]}...")
 
     # --- Pass 2: Simple Junk Removal ---
+    # Always run this pass
     passes = 0
-    max_passes_junk = 5 # Usually less nesting here
+    max_passes_junk = 5
     last_line = None
     while processed_line != last_line and passes < max_passes_junk:
         last_line = processed_line
         processed_line = RE_SIMPLE_JUNK.sub(r"\1", last_line) # Replace %junk%C%junk% with C
         passes += 1
-        # log_verbose(f"  Pass {passes} junk: {processed_line[:80]}...") # Debugging
-
     if passes >= max_passes_junk and processed_line != last_line:
-        print(f"Warning: Max substitution passes ({max_passes_junk}) reached for junk removal on line: {original_line[:80]}...")
+        print(f"Warning: Max substitution passes ({max_passes_junk}) reached for junk removal: {original_line[:80]}...")
 
 
     # --- Pass 3: Remove leftover markers ---
@@ -291,10 +364,18 @@ def deobfuscate_line_characters(line: str, settings: Dict) -> str:
     # --- Pass 4: Normalize command case (simple version) ---
     words = processed_line.split()
     if words:
-        known_commands = ["echo", "set", "goto", "if", "for", "call", "exit", "chcp", "cls", "rem", "pause"]
+        # Expand list of known batch commands
+        known_commands = [
+            "echo", "set", "goto", "if", "for", "call", "exit", "chcp", "cls", "rem",
+            "pause", "del", "copy", "move", "ren", "md", "rd", "dir", "find", "findstr",
+            "type", "sort", "start", "assoc", "ftype", "pushd", "popd", "setlocal", "endlocal",
+            "verify", "vol", "label", "path", "prompt", "title", "color", "mode", "net", "sc",
+            "taskkill", "tasklist", "wmic", "powershell", "cscript"
+            ]
         first_word_lower = words[0].lower()
-        if first_word_lower.strip(':') in known_commands or first_word_lower in known_commands:
-             words[0] = first_word_lower
+        # Check if the first word (stripping potential leading :) is a known command
+        if first_word_lower.lstrip(':') in known_commands:
+             words[0] = first_word_lower # Normalize to lowercase
         processed_line = " ".join(words)
 
     if VERBOSE and original_line != processed_line:
@@ -304,120 +385,123 @@ def deobfuscate_line_characters(line: str, settings: Dict) -> str:
 
 
 def reverse_scrambling(lines: List[str]) -> List[str]:
-    """Reverses the Scrambler code reordering, evaluating math."""
-    # Find the FIRST occurrence of a likely scrambler 'goto :EOF' or 'exit /b 0'
-    # marker, as others might exist in the original user code.
+    """Reverses the Scrambler code reordering, using enhanced math eval."""
     eof_index = -1
+    # Find the first potential scrambler EOF marker reliably
     for i, line in enumerate(lines):
         stripped_lower = line.strip().lower()
+        # Check for the marker itself
         if stripped_lower == "goto :eof" or stripped_lower == "exit /b 0":
-            # Basic check: Is it likely preceded by scrambled code jump logic?
-            if i > 0 and lines[i-1].strip().lower().startswith("goto %ans%"):
-                 eof_index = i
-                 break
-            # If not preceded by jump, maybe it's user's own exit, keep searching.
+            # Check context: should be preceded by a goto %ans% line for scrambler
+            if i > 0:
+                prev_line_stripped_lower = lines[i-1].strip().lower()
+                if prev_line_stripped_lower == "goto %ans%":
+                     eof_index = i
+                     log_verbose(f"Found likely scrambler EOF marker at line {i+1}")
+                     break # Found it
+            # If context doesn't match, it might be user code, continue searching
 
     if eof_index == -1:
-        print("Scrambler 'goto :EOF' marker likely not found or structure unexpected. Skipping scrambling reversal.")
-        return lines
+        log_verbose("Scrambler EOF marker not found or context incorrect. Skipping scrambling reversal.")
+        return lines # Return lines as they are
 
-    print(f"Found potential scrambler 'goto :EOF' marker at line index {eof_index}.")
+    # Proceed with splitting and parsing
     main_code_lines = lines[:eof_index]
     scrambled_part_lines = lines[eof_index + 1:]
     scrambled_part_text = "\n".join(scrambled_part_lines)
 
     # Parse the scrambled blocks: {target_label_str: original_code_line}
     label_to_code: Dict[str, str] = {}
-    parsed_block_count = 0
-    failed_block_count = 0
+    parsed_block_count, failed_block_count = 0, 0
+
+    # Iterate through potential blocks using the regex
     for match in RE_SCRAMBLED_BLOCK.finditer(scrambled_part_text):
         label = match.group(1)
         # Group 2 contains original code + potentially injected anti-methods.
-        # Assume original code is the first non-empty line(s).
-        potential_code_lines = match.group(2).strip().splitlines()
+        # Take the first non-empty line as the most likely original code.
+        potential_code_lines = [ln for ln in match.group(2).strip().splitlines() if ln.strip()]
         original_code = ""
         if potential_code_lines:
-            original_code = potential_code_lines[0].strip() # Take the first line
-            # Could potentially join first few lines if original was multi-line, but less likely
+            original_code = potential_code_lines[0].strip() # Assume first non-empty line is key
         else:
-            print(f"Warning: Found block for label {label} but no code captured.")
+            log_verbose(f"Warning: Found block for label {label} but no non-empty code captured.")
             failed_block_count += 1
-            continue
+            continue # Skip if no code found
 
         if label in label_to_code:
-            print(f"Warning: Duplicate label {label} found in scrambled blocks. Overwriting.")
+            log_verbose(f"Warning: Duplicate label {label} found in scrambled blocks. Overwriting with later definition.")
         label_to_code[label] = original_code
-        log_verbose(f"Found scrambled block for label {label}: {original_code[:60]}...")
+        log_verbose(f"Found scrambled block label {label}: {original_code[:60]}...")
         parsed_block_count += 1
 
     if not label_to_code:
-        print("No valid scrambled blocks found after 'goto :EOF'. Structure might be broken.")
-        return main_code_lines # Return only the main code part
+        print("Warning: No valid scrambled blocks parsed after EOF marker. Structure might be broken.")
+        # Still return only the main code part, as the rest was likely junk/EOF
+        return main_code_lines
 
-    print(f"Parsed {parsed_block_count} scrambled blocks (encountered {failed_block_count} errors).")
+    print(f"Parsed {parsed_block_count} scrambled blocks (encountered {failed_block_count} parsing errors).")
 
     # Reconstruct the main code by replacing jump blocks
     reconstructed_code = []
     main_code_text = "\n".join(main_code_lines)
     last_pos = 0
-    replacement_count = 0
-    failed_evaluation_count = 0
+    replacement_count, failed_evaluation_count = 0, 0
 
+    # Use finditer to process jumps sequentially
     for jump_match in RE_SCRAMBLE_JUMP.finditer(main_code_text):
-        math_expression = jump_match.group(1)
-        return_label = jump_match.group(2) # Return label from the jump block itself
+        math_expression = jump_match.group(1).strip()
+        # Return label (group 2) is captured but not strictly needed for replacement
+        # return_label = jump_match.group(2)
 
         # Evaluate the math expression to find the target label
         target_label_int = safe_eval_batch_math(math_expression)
         target_label_str = str(target_label_int) if target_label_int is not None else None
 
-        # Add the text before this jump block
+        # Add the text segment *before* this jump block
         reconstructed_code.append(main_code_text[last_pos:jump_match.start()])
 
-        # Replace the jump block with the original code from the map
+        # Attempt to replace the jump block with the original code
         if target_label_str and target_label_str in label_to_code:
-            log_verbose(f"Replacing jump (math='{math_expression}', eval={target_label_str}) with code for label {target_label_str}.")
-            reconstructed_code.append(label_to_code[target_label_str])
+            log_verbose(f"Replacing jump (math='{math_expression}', eval={target_label_str})")
+            reconstructed_code.append(label_to_code[target_label_str]) # Insert original code
             replacement_count += 1
         elif target_label_str:
-            print(f"Warning: Evaluated jump target label {target_label_str} (from '{math_expression}'), but no corresponding block found!")
+            # Math evaluated, but label not found (maybe parsing error or obfuscator bug)
+            print(f"Warning: Evaluated target label {target_label_str} (from '{math_expression}'), but no corresponding block found! Jump removed.")
             failed_evaluation_count += 1
-            # Option: Keep the original jump block? Or remove? Remove for cleaner output.
-            # reconstructed_code.append(f"rem FAILED_JUMP_TARGET_NOT_FOUND: {target_label_str}")
+            # Append nothing, effectively removing the jump block
         else:
             # Math evaluation failed
-             print(f"Warning: Failed to evaluate math for jump target ('{math_expression}'). Cannot replace jump.")
+             print(f"Warning: Failed to evaluate math for jump target ('{math_expression}'). Jump removed.")
              failed_evaluation_count += 1
-             # reconstructed_code.append(f"rem FAILED_JUMP_MATH_EVAL: {math_expression}")
+             # Append nothing, effectively removing the jump block
 
-
+        # Update position for the next segment
         last_pos = jump_match.end()
 
-    # Add any remaining text after the last jump block
+    # Add any remaining text after the last processed jump block
     reconstructed_code.append(main_code_text[last_pos:])
 
-    print(f"Finished reversing scrambling: {replacement_count} jumps replaced, {failed_evaluation_count} failures.")
+    print(f"Finished reversing scrambling: {replacement_count} jumps replaced, {failed_evaluation_count} failures/removals.")
+    # Return the reconstructed code as a list of lines
     return "\n".join(reconstructed_code).splitlines()
 
 
 def remove_inserted_code(lines: List[str]) -> List[str]:
-    """Removes known inserted lines using patterns in RE_LINES_TO_REMOVE."""
+    """Removes known inserted lines/blocks using patterns in RE_JUNK_TO_REMOVE."""
     original_count = len(lines)
-    cleaned_lines = []
-    removed_count = 0
-    for i, line in enumerate(lines):
-        is_removable = False
-        for pattern in RE_LINES_TO_REMOVE:
-            if pattern.match(line):
-                log_verbose(f"Removing line {i+1} matching pattern: {pattern.pattern[:50]}...")
-                is_removable = True
-                removed_count +=1
-                break
-        if not is_removable:
-            cleaned_lines.append(line)
+    # Use a list comprehension for efficient filtering
+    cleaned_lines = [
+        line for line in lines
+        if not any(pattern.search(line) for pattern in RE_JUNK_TO_REMOVE)
+    ]
+    removed_count = original_count - len(cleaned_lines)
 
     if removed_count > 0:
-        print(f"Removed {removed_count} known inserted/junk lines.")
+        print(f"Removed {removed_count} known inserted/junk lines based on patterns.")
+    elif VERBOSE:
+         log_verbose("No known junk lines found matching removal patterns.")
+
     return cleaned_lines
 
 def final_cleanup(lines: List[str]) -> List[str]:
@@ -425,15 +509,15 @@ def final_cleanup(lines: List[str]) -> List[str]:
     cleaned = []
     last_line_empty = True
     for line in lines:
-        stripped = line.strip()
+        stripped = line.strip() # Remove leading/trailing whitespace first
         if stripped:
-            cleaned.append(stripped) # Store stripped line
+            cleaned.append(stripped) # Add the content line
             last_line_empty = False
         elif not last_line_empty:
-            # Keep one empty line for readability, but don't add if multiple were there
-            cleaned.append("") # Add an actual empty string
+            # Only add an empty line if the previous line was not empty
+            cleaned.append("") # Add a single empty line
             last_line_empty = True
-    # Remove potential trailing empty line added by loop
+    # Remove potential trailing empty line added by loop logic
     if cleaned and cleaned[-1] == "":
         cleaned.pop()
     return cleaned
@@ -442,37 +526,40 @@ def final_cleanup(lines: List[str]) -> List[str]:
 # --- Main Execution ---
 
 def deobfuscate_file(input_path: Path, output_path: Path):
-    """Main deobfuscation pipeline."""
+    """Main deobfuscation pipeline with refined steps."""
     print("-" * 60)
     print(f"Starting deobfuscation for: {input_path}")
     print("-" * 60)
 
     # 1. Read and Preprocess (Encoding, BOM)
     lines = read_and_preprocess(input_path)
-    if lines is None: return
+    if lines is None:
+        print("Failed to read or decode file. Aborting.")
+        return # Abort if reading failed
 
     # 2. Extract Initial Settings (KDOT, Caesar Map)
     print("\n[Step 1/5] Extracting initial settings...")
     settings = extract_initial_settings(lines)
 
-    # 3. Deobfuscate Characters (Iteratively apply rules)
+    # 3. Deobfuscate Characters (Applied to ALL lines first)
     print("\n[Step 2/5] Deobfuscating characters...")
     char_deobfuscated_lines = []
     for i, line in enumerate(lines):
+         # Use enumerate for line numbers in verbose logging
          log_verbose(f"Processing line {i+1}/{len(lines)}: {line[:80]}...")
          processed_line = deobfuscate_line_characters(line, settings)
          char_deobfuscated_lines.append(processed_line)
     print("Character deobfuscation finished.")
 
-    # 4. Reverse Scrambling (Requires character deobf to be done first)
+    # 4. Reverse Scrambling (Operates on character-deobfuscated lines)
     print("\n[Step 3/5] Reversing code scrambling...")
     scramble_reversed_lines = reverse_scrambling(char_deobfuscated_lines)
 
-    # 5. Remove Inserted/Known Junk Lines
-    print("\n[Step 4/5] Removing known inserted lines...")
+    # 5. Remove Inserted/Known Junk Lines (Operates AFTER scrambling reversal & char deobf)
+    print("\n[Step 4/5] Removing known inserted lines and anti-methods...")
     removed_junk_lines = remove_inserted_code(scramble_reversed_lines)
 
-    # 6. Final Cleanup (Extra blank lines etc)
+    # 6. Final Cleanup
     print("\n[Step 5/5] Performing final cleanup...")
     final_lines = final_cleanup(removed_junk_lines)
 
@@ -481,43 +568,64 @@ def deobfuscate_file(input_path: Path, output_path: Path):
     try:
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text("\n".join(final_lines), encoding='utf-8', newline='\r\n') # Use CRLF for batch files
+        # Write with UTF-8 and standard Windows line endings
+        output_path.write_text("\n".join(final_lines) + "\n", encoding='utf-8', newline='\r\n')
         print("-" * 60)
         print(f"Deobfuscation complete. Output written to: {output_path}")
         print("-" * 60)
     except IOError as e:
-        print(f"Error writing output file {output_path}: {e}")
+        print(f"ERROR: Could not write output file {output_path}: {e}")
     except Exception as e:
-        print(f"An unexpected error occurred during file writing: {e}")
+        print(f"ERROR: An unexpected error occurred during file writing: {e}")
 
 
 if __name__ == "__main__":
+    # Setup Argument Parser
     parser = argparse.ArgumentParser(
-        description="Deobfuscator for SomalifuscatorV2",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        description="Enhanced Deobfuscator for SomalifuscatorV2 Batch files.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter # Show defaults in help message
     )
-    parser.add_argument("input_file", help="Path to the obfuscated batch file.")
-    parser.add_argument("-o", "--output", help="Path for the deobfuscated output file.")
-    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose logging.")
+    parser.add_argument(
+        "input_file",
+        help="Path to the obfuscated batch file (.bat or .cmd)."
+    )
+    parser.add_argument(
+        "-o", "--output",
+        help="Path for the deobfuscated output file. If omitted, saves as '<input_stem>_deobf.bat'."
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true", # Makes it a flag, True if present
+        help="Enable verbose logging for detailed deobfuscation steps."
+    )
 
+    # Parse arguments
     args = parser.parse_args()
 
-    VERBOSE = args.verbose # Set global verbose flag
+    # Set global verbose flag
+    VERBOSE = args.verbose
 
+    # Prepare paths
     input_path = Path(args.input_file)
-    if not input_path.is_file():
-        print(f"Error: Input file not found: {input_path}")
-        exit(1)
-
+    # Determine output path
     if args.output:
         output_path = Path(args.output)
     else:
-        # Place output in same dir as input by default
-        output_path = input_path.with_name(f"{input_path.stem}_deobf.bat")
+        # Default output path construction
+        output_path = input_path.with_name(f"{input_path.stem}_deobf{input_path.suffix}")
 
-    # Basic check to prevent overwriting input file accidentally
+    # --- Input Validation ---
+    # Check if input file exists
+    if not input_path.is_file():
+        print(f"ERROR: Input file not found: {input_path}")
+        exit(1) # Exit script with error code
+
+    # Prevent accidental overwrite of input file
+    # Resolve paths to handle relative paths and case differences on Windows
     if input_path.resolve() == output_path.resolve():
-         print(f"Error: Input and output file paths are the same ({input_path}). Choose a different output path.")
+         print(f"ERROR: Input and output file paths point to the same file ({input_path}).")
+         print("Please specify a different output file using the -o option.")
          exit(1)
 
+    # --- Run Deobfuscation ---
     deobfuscate_file(input_path, output_path)
