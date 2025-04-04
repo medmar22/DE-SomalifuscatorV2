@@ -10,7 +10,7 @@ function Header() {
           Somalifuscator <span className="text-gray-400 font-normal">Toolbox</span>
         </h1>
         <a
-            href="https://github.com/YourGitHubUsername/YourRepoName" // CHANGE THIS TO YOUR REPO LINK
+            href="https://github.com/medmar22/DE-SomalifuscatorV2/tree/VITE-UI" // CHANGE THIS TO YOUR REPO LINK
             target="_blank"
             rel="noopener noreferrer"
             className="text-gray-400 hover:text-teal-400 transition duration-150 ease-in-out"
