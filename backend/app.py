@@ -5,7 +5,7 @@ import tempfile
 import shutil
 import logging
 from pathlib import Path
-# from urllib.parse import urlparse # Not needed for env var approach
+# from urllib.parse import urlparse # Not needed
 from flask import Flask, request, jsonify
 from flask_cors import CORS # Make sure Flask-CORS is imported
 from dotenv import load_dotenv
@@ -19,39 +19,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 app = Flask(__name__)
 
-# --- Dynamically Determine Allowed Origins for CORS ---
-# Start with the default localhost origins often used in local development
-allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
-
-# Try to detect Codespaces environment variables for more reliable origin construction
-# Common variables (check your Codespace 'env' if these don't work):
-codespace_name = os.environ.get("CODESPACE_NAME")
-github_codespaces_port_forwarding_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN") # e.g., github.dev, app.github.dev
-
-if codespace_name and github_codespaces_port_forwarding_domain:
-     # Construct the expected frontend origin URL for Codespaces (usually port 5173)
-     frontend_codespace_origin = f"https://{codespace_name}-5173.{github_codespaces_port_forwarding_domain}"
-     logging.info(f"Detected Codespaces, adding origin to CORS allow list: {frontend_codespace_origin}")
-     # Add the specific Codespace origin to the list
-     if frontend_codespace_origin not in allowed_origins: # Avoid duplicates
-        allowed_origins.append(frontend_codespace_origin)
-else:
-     # Fallback if specific env vars aren't set - allows broader range but use carefully
-     logging.warning("Codespaces environment variables for domain/name not detected. Adding generic *.github.dev pattern to CORS origins. Review security if necessary.")
-     # Add wildcard patterns for common Codespaces domains
-     # Note: '*' matches any sequence of characters in that part of the origin
-     # This is less secure than specifying the exact origin but often necessary if env vars aren't reliable
-     generic_github_dev = "https://*.github.dev"
-     generic_app_github_dev = "https://*.app.github.dev"
-     if generic_github_dev not in allowed_origins:
-        allowed_origins.append(generic_github_dev)
-     if generic_app_github_dev not in allowed_origins:
-        allowed_origins.append(generic_app_github_dev)
-
-# Apply the CORS configuration using the determined list of allowed origins
-logging.info(f"Final CORS origins configured: {allowed_origins}")
-# Allow requests only to paths starting with /api/
-CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
+# --- Temporarily Allow All Origins for CORS Debugging ---
+# !! IMPORTANT: This is insecure for production. !!
+# !! Change back to specific origins once CORS is confirmed working. !!
+logging.warning("Applying WIDE OPEN CORS policy (origins='*') for debugging!")
+CORS(app, resources={r"/api/*": {"origins": "*"}}) # Allow all origins for requests to /api/*
 # --- End CORS Configuration ---
 
 
@@ -202,22 +174,12 @@ def handle_deobfuscate():
         logging.info(f"Successfully read deobfuscated output file ({len(processed_code)} chars).")
 
         # --- Optional Supabase Logging ---
-        if supabase:
-            try:
-                # Example: Log the operation to a 'logs' table
-                # Replace 'your_logs_table' with your actual table name
-                # Ensure the table schema matches the data you insert
-                # data, count = supabase.table('your_logs_table').insert({
-                #     'operation': 'deobfuscate',
-                #     'filename': file.filename,
-                #     'success': True,
-                #     'ip_address': request.remote_addr # Example: Log IP
-                # }).execute()
-                # logging.info(f"Logged deobfuscation event to Supabase: {data}")
-                pass # Replace with your actual Supabase logic
-            except Exception as sb_error:
-                logging.error(f"Supabase interaction failed during deobfuscate log: {sb_error}")
-        # ---------------------------------
+        # (Keep this commented out unless you implement Supabase logic)
+        # if supabase:
+        #     try:
+        #         pass # Replace with your actual Supabase logic
+        #     except Exception as sb_error:
+        #         logging.error(f"Supabase interaction failed during deobfuscate log: {sb_error}")
 
         return jsonify({"success": True, "processedCode": processed_code})
 
@@ -229,7 +191,6 @@ def handle_deobfuscate():
         if temp_dir and Path(temp_dir).exists():
             try:
                 shutil.rmtree(temp_dir)
-                # logging.info(f"Removed temporary directory: {temp_dir}") # Can be noisy
             except Exception as e:
                  logging.error(f"Failed to remove temporary directory {temp_dir}: {e}")
 
@@ -264,25 +225,19 @@ def handle_obfuscate():
         logging.info(f"Saved uploaded file to: {temp_input_path}")
 
         # --- Construct Command Confirmed by OG CODE/src/main.py ---
-        # Execute OG CODE/src/main.py as a module (-m) from within the src directory (cwd)
-        # Provide required -f (input) and -o (output) arguments.
         cmd = [
             sys.executable,
             "-m", "main",                      # Run src/main.py as a module
             "-f", str(temp_input_path),        # Input file flag
             "-o", str(temp_output_path)        # Output file flag
-            # Optional: Add '-dc' or '-nu' here if you want to expose those features
-            # via the API in the future (e.g., based on request.form data)
         ]
 
         # --- Execute from within OG CODE/src directory ---
-        # This is crucial because src/main.py likely imports other modules relatively (e.g., from util)
         success, _, script_error_output = run_script(cmd, cwd=SOMALIFUSCATOR_SRC_DIR, script_name="Somalifuscator")
 
         if not success:
             err_msg = f"Obfuscation script failed."
             if script_error_output: err_msg += f" Details: {script_error_output[:500]}"
-             # Check if the failure might be due to missing dependencies
             if script_error_output and ("ModuleNotFoundError" in script_error_output or "ImportError" in script_error_output):
                  err_msg += f" (Potential dependency issue. Ensure requirements installed: pip install -r \"{SOMALIFUSCATOR_DIR.resolve() / 'requirements.txt'}\")"
             logging.error(err_msg)
@@ -299,19 +254,12 @@ def handle_obfuscate():
         logging.info(f"Successfully read obfuscated output file ({len(processed_code)} chars).")
 
         # --- Optional Supabase Logging ---
-        if supabase:
-            try:
-                 # Replace 'your_logs_table' with your actual table name
-                # supabase.table('your_logs_table').insert({
-                #     'operation': 'obfuscate',
-                #     'filename': file.filename,
-                #     'success': True,
-                #     'ip_address': request.remote_addr
-                # }).execute()
-                pass # Replace with your actual Supabase logic
-            except Exception as sb_error:
-                logging.error(f"Supabase interaction failed during obfuscate log: {sb_error}")
-        # ---------------------------------
+        # (Keep this commented out unless you implement Supabase logic)
+        # if supabase:
+        #     try:
+        #         pass # Replace with your actual Supabase logic
+        #     except Exception as sb_error:
+        #         logging.error(f"Supabase interaction failed during obfuscate log: {sb_error}")
 
         return jsonify({"success": True, "processedCode": processed_code})
 
@@ -323,18 +271,13 @@ def handle_obfuscate():
         if temp_dir and Path(temp_dir).exists():
             try:
                 shutil.rmtree(temp_dir)
-                # logging.info(f"Removed temporary directory: {temp_dir}") # Can be noisy
             except Exception as e:
                  logging.error(f"Failed to remove temporary directory {temp_dir}: {e}")
 
 
 # --- Main Execution ---
 if __name__ == '__main__':
-    # Use port 5001 to avoid conflict with Vite's default 5173 (or your frontend port)
     port = int(os.environ.get("PORT", 5001))
-    # Set debug=False for production environments for security and performance
-    # Set debug=True for development to get auto-reloading and more detailed errors
     debug_mode = os.environ.get("FLASK_DEBUG", "true").lower() == "true"
     logging.info(f"Starting Flask server on http://0.0.0.0:{port}/ with debug_mode={debug_mode}")
-    # Use host='0.0.0.0' to make it accessible on your network (use '127.0.0.1' for local only)
     app.run(debug=debug_mode, host='0.0.0.0', port=port)
