@@ -2,24 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Add any other base styles here if needed */
+/* Base body styles */
 body {
-  @apply bg-gray-100 text-gray-900 font-sans; /* Example base styles */
+  @apply bg-gray-900 text-gray-200 font-sans antialiased; /* Added antialiased for smoother fonts */
 }
 
-/* Custom scrollbar (optional but nice) */
+/* Custom scrollbar (Optional but recommended for dark themes) */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: #2d3748; /* Slightly lighter dark */
   border-radius: 10px;
 }
 ::-webkit-scrollbar-thumb {
-  background: #888;
+  background: #718096; /* Muted gray */
   border-radius: 10px;
+  border: 2px solid #2d3748; /* Match track background */
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: #a0aec0; /* Lighter gray on hover */
+}
+
+/* Style the code blocks slightly */
+pre[class*="language-"] {
+    @apply !bg-gray-800/60 rounded-md p-4 text-sm; /* Tailwind override example - adjust as needed */
 }
