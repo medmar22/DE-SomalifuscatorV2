@@ -5,6 +5,11 @@ import FileUpload from './components/FileUpload';
 import Controls from './components/Controls';
 import CodeDisplay from './components/CodeDisplay';
 
+// --- CONFIGURATION ---
+// Define the base URL for your backend API server
+const BACKEND_URL = 'http://localhost:5001'; // Default Flask port
+// --- END CONFIGURATION ---
+
 // Define the example script here
 const EXAMPLE_SCRIPT_FILENAME = 'example.bat';
 const EXAMPLE_SCRIPT_CONTENT = `
@@ -66,7 +71,7 @@ function App() {
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        setOriginalCode(e.target?.result as string);
+        setOriginalCode(e.target?.result as string ?? ''); // Ensure string type
       };
       reader.onerror = () => {
         setError(`Error reading file: ${file.name}`);
@@ -93,36 +98,54 @@ function App() {
     const formData = new FormData();
     formData.append('file', originalFile);
 
-    const endpoint = action === 'obfuscate' ? '/api/obfuscate' : '/api/deobfuscate';
+    // --- MODIFIED PART ---
+    // Construct the full API endpoint URL using the backend base URL
+    const apiPath = action === 'obfuscate' ? '/api/obfuscate' : '/api/deobfuscate';
+    const endpoint = `${BACKEND_URL}${apiPath}`;
+    // ---------------------
+
+    console.log(`Sending POST request to: ${endpoint}`); // Log the target endpoint
 
     try {
-      // --- IMPORTANT ---
-      // This fetch call assumes you have a backend running at the same origin
-      // serving the API endpoints /api/obfuscate and /api/deobfuscate.
-      // You MUST implement this backend separately.
-      // The backend should accept a POST request with multipart/form-data
-      // containing the file, run the appropriate Python script, and return
-      // JSON like { processedCode: "...", success: true } or { error: "...", success: false }
-      // -----------------
-      const response = await fetch(endpoint, {
+      const response = await fetch(endpoint, { // Use the full absolute URL
         method: 'POST',
         body: formData,
-        // Add headers if needed by your backend (e.g., Authorization)
+        // No 'Content-Type' header needed for FormData; the browser sets it correctly with the boundary.
       });
 
+      // --- ADDED CHECK ---
+      // Check if the response status indicates a network or server error (like 404, 500)
+      // BEFORE trying to parse the body as JSON.
+      if (!response.ok) {
+          // Attempt to read the response body as text, as it might contain an error message (HTML or plain text)
+          const errorText = await response.text();
+          console.error(`API Error Response (${response.status}):`, errorText);
+          // Throw an error with the text content or a generic HTTP status message
+          throw new Error(errorText || `Request failed with status: ${response.status}`);
+      }
+      // --- END ADDED CHECK ---
+
+      // If response.ok is true, proceed to parse the JSON body
       const result = await response.json();
 
-      if (!response.ok || result.success === false) {
-        throw new Error(result.error || `HTTP error! status: ${response.status}`);
+      // Check for application-level errors reported within the JSON structure
+      if (result.success === false) {
+        console.error('API returned success: false, Error:', result.error);
+        // Use the error message provided by the backend API
+        throw new Error(result.error || 'API request failed.');
       }
 
-      setProcessedCode(result.processedCode || ''); // Adjust based on your backend response structure
+      // If successful, update the processed code state
+      setProcessedCode(result.processedCode || ''); // Use the processed code from the JSON response
 
     } catch (err: any) {
+      // Log the full error caught (could be network error, JSON parsing error, or thrown error)
       console.error(`Error during ${action}:`, err);
-      setError(`Failed to ${action} file. ${err.message || 'Check backend connection/logs.'}`);
-      setProcessedCode(''); // Clear processed code on error
+      // Set a user-friendly error message for the UI
+      setError(`Failed to ${action} file. ${err.message || 'Check console or backend logs for details.'}`);
+      setProcessedCode(''); // Clear any previous processed code on error
     } finally {
+      // Ensure loading state is turned off regardless of success or failure
       setIsLoading(false);
     }
   };
@@ -134,7 +157,7 @@ function App() {
 
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-slate-900 text-gray-100">
+    <div className="min-h-screen flex flex-col bg-gradient-to-br from-gray-900 via-gray-800 to-slate-900 text-gray-100 font-sans">
       <Header />
       <main className="flex-grow container mx-auto px-4 py-8">
         <div className="bg-gray-800 shadow-xl rounded-lg p-6 mb-8 border border-slate-700">
@@ -143,7 +166,7 @@ function App() {
           <div className="mt-4 text-center">
             <button
               onClick={handleUseExample}
-              className="text-sm text-teal-400 hover:text-teal-300 transition duration-150 ease-in-out underline"
+              className="text-sm text-teal-400 hover:text-teal-300 transition duration-150 ease-in-out underline focus:outline-none focus:ring-2 focus:ring-teal-500 focus:ring-offset-2 focus:ring-offset-gray-800 rounded"
             >
               Or use the example script
             </button>
@@ -169,6 +192,7 @@ function App() {
           </div>
         )}
 
+        {/* Ensure CodeDisplay component exists and is imported correctly */}
         <CodeDisplay
           originalCode={originalCode}
           processedCode={processedCode}
