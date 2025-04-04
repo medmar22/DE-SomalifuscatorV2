@@ -1,0 +1,138 @@
+# --- General ---
+# Operating System Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Log files
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+pnpm-debug.log*
+
+# IDE/Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*~
+
+# --- Frontend (Node.js / Vite / React) ---
+# Dependencies
+node_modules/
+
+# Build Output
+dist/
+out/
+build/ # Can overlap with Python, but fine here
+
+# Vite specific cache/build files
+.vite/
+*.html # Ignore root html files in node_modules
+
+# Testing artifacts
+coverage/
+*.lcov
+
+# Environment variables (VERY IMPORTANT!)
+# Never commit local environment variables containing secrets.
+# Use .env.example to show structure if needed.
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+.env.production
+# Keep .env.example if you create one!
+# !.env.example
+
+# --- Backend (Python / Flask) ---
+# Virtual Environments
+venv/
+env/
+.venv/
+*/env/
+*/venv/
+ENV/
+# If you like to keep activate scripts uncomment below
+# !.venv/bin/activate*
+# !.venv/Scripts/activate*
+
+# Compiled Python files
+*.pyc
+*.pyo
+__pycache__/
+*.so
+
+# Distribution / packaging
+build/ # Python build directory
+dist/ # Python dist directory
+downloads/
+eggs/
+*.egg-info/
+*.egg
+wheels/
+*.whl
+
+# PyInstaller
+# *.manifest
+# *.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage artifacts
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Flask session files (if using filesystem sessions)
+instance/ # Often contains config or db
+*.sqlite
+*.sqlite3
+
+# Type checker cache
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+cython_debug/
+
+# Temporary files created by the backend scripts
+# Note: The backend script cleans its own temp dirs, but this is a safeguard
+# Avoid overly broad patterns like 'temp/' unless intended.
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints
+
+# --- Backend Specific Files (Already Handled) ---
+# .env is handled in the general section above for Supabase keys
+
+# --- Files to KEEP Tracked ---
+# Ensure these aren't accidentally ignored by broad patterns above
+# Keep the main package lock file
+!/package-lock.json
+# Keep example environment files if you use them
+!/.env.example
+!/backend/.env.example
+
+# --- OG CODE Directory ---
+# Decide whether to track the 'OG CODE' directory.
+# If you want everyone who clones your repo to have it automatically, DO NOT ignore it.
+# If you prefer users clone it manually or use submodules, uncomment the line below:
+# OG CODE/
