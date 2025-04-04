@@ -5,8 +5,9 @@ import tempfile
 import shutil
 import logging
 from pathlib import Path
+# from urllib.parse import urlparse # Not needed for env var approach
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+from flask_cors import CORS # Make sure Flask-CORS is imported
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -17,9 +18,42 @@ load_dotenv() # Load variables from .env file
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 app = Flask(__name__)
-# Enable CORS for your frontend development server origin
-# Adjust origins if your frontend runs elsewhere (e.g., during production)
-CORS(app, resources={r"/api/*": {"origins": ["http://localhost:5173", "http://127.0.0.1:5173"]}})
+
+# --- Dynamically Determine Allowed Origins for CORS ---
+# Start with the default localhost origins often used in local development
+allowed_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+# Try to detect Codespaces environment variables for more reliable origin construction
+# Common variables (check your Codespace 'env' if these don't work):
+codespace_name = os.environ.get("CODESPACE_NAME")
+github_codespaces_port_forwarding_domain = os.environ.get("GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN") # e.g., github.dev, app.github.dev
+
+if codespace_name and github_codespaces_port_forwarding_domain:
+     # Construct the expected frontend origin URL for Codespaces (usually port 5173)
+     frontend_codespace_origin = f"https://{codespace_name}-5173.{github_codespaces_port_forwarding_domain}"
+     logging.info(f"Detected Codespaces, adding origin to CORS allow list: {frontend_codespace_origin}")
+     # Add the specific Codespace origin to the list
+     if frontend_codespace_origin not in allowed_origins: # Avoid duplicates
+        allowed_origins.append(frontend_codespace_origin)
+else:
+     # Fallback if specific env vars aren't set - allows broader range but use carefully
+     logging.warning("Codespaces environment variables for domain/name not detected. Adding generic *.github.dev pattern to CORS origins. Review security if necessary.")
+     # Add wildcard patterns for common Codespaces domains
+     # Note: '*' matches any sequence of characters in that part of the origin
+     # This is less secure than specifying the exact origin but often necessary if env vars aren't reliable
+     generic_github_dev = "https://*.github.dev"
+     generic_app_github_dev = "https://*.app.github.dev"
+     if generic_github_dev not in allowed_origins:
+        allowed_origins.append(generic_github_dev)
+     if generic_app_github_dev not in allowed_origins:
+        allowed_origins.append(generic_app_github_dev)
+
+# Apply the CORS configuration using the determined list of allowed origins
+logging.info(f"Final CORS origins configured: {allowed_origins}")
+# Allow requests only to paths starting with /api/
+CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
+# --- End CORS Configuration ---
+
 
 # --- Constants & Paths ---
 BACKEND_DIR = Path(__file__).parent.resolve()
@@ -111,7 +145,11 @@ def run_script(cmd: list, cwd: Path | None = None, script_name: str = "Script") 
 
 @app.route('/api/deobfuscate', methods=['POST'])
 def handle_deobfuscate():
-    logging.info("Received request for /api/deobfuscate")
+    # --- ADDED LOGGING ---
+    logging.info(f"!!! Request received for /api/deobfuscate from {request.remote_addr} !!!")
+    logging.info(f"Origin Header: {request.headers.get('Origin')}") # Log the actual origin header received
+    # --- END ADDED LOGGING ---
+
     # --- Input Validation ---
     if not deobfuscator_ok: # Check if script exists early
          return jsonify({"success": False, "error": "Internal server error: Deobfuscator script not configured."}), 500
@@ -198,7 +236,11 @@ def handle_deobfuscate():
 
 @app.route('/api/obfuscate', methods=['POST'])
 def handle_obfuscate():
-    logging.info("Received request for /api/obfuscate")
+    # --- ADDED LOGGING ---
+    logging.info(f"!!! Request received for /api/obfuscate from {request.remote_addr} !!!")
+    logging.info(f"Origin Header: {request.headers.get('Origin')}") # Log the actual origin header received
+    # --- END ADDED LOGGING ---
+
     # --- Input Validation ---
     if not somalifuscator_ok: # Check if script structure is okay early
          return jsonify({"success": False, "error": "Internal server error: Original obfuscator script not configured or found."}), 500
