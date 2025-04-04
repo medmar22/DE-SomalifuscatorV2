@@ -48,22 +48,15 @@ These instructions cover setting up the project locally or within a development 
 
 1.  **Clone the Repository:**
     ```bash
-    git clone <your-repository-url>
-    cd <your-repository-directory-name> # e.g., cd DE-SomalifuscatorV2
+    git clone https://github.com/medmar22/DE-SomalifuscatorV2.git
+    cd DE-SomalifuscatorV2
     ```
 
 2.  **Set up Backend:**
-    *   **Place Original Obfuscator:** Ensure the code for the original SomalifuscatorV2 is located inside the `backend/` directory in a folder named `OG CODE`. If you haven't cloned it yet:
-        ```bash
-        cd backend
-        git clone https://github.com/KingKDot/SomalifuscatorV2.git "OG CODE"
-        cd ..
-        ```
     *   **Install Backend Dependencies:** Navigate to the backend directory and install requirements for *both* the Flask app and the original obfuscator:
         ```bash
         cd backend
         pip install -r requirements.txt
-        pip install -r "OG CODE/requirements.txt"
         cd ..
         ```
     *   *(Optional)* **Environment Variables:** Create a `.env` file inside the `backend/` directory for Supabase keys if you plan to use database integration. See the Environment Variables section below.
