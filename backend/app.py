@@ -19,13 +19,18 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 app = Flask(__name__)
 
-# --- Simplest CORS Initialization - Apply Globally ---
-# !! IMPORTANT: This is insecure for production. !!
-# !! Change back to specific origins once CORS is confirmed working. !!
-# Applying CORS globally with default settings (often allows '*')
-# as the previous resource-specific approach wasn't working.
-logging.warning("Applying WIDE OPEN CORS policy GLOBALLY (CORS(app)) for debugging!")
-CORS(app) # Apply CORS to the entire app
+# --- Specific CORS Configuration ---
+# Reverting from the wide-open debugging setting ('*') to specific origins.
+# Add the specific Codespace frontend origin identified from browser errors.
+frontend_origin_codespace = "https://vigilant-space-tribble-x6pv56g59462vv4r-5173.app.github.dev" # From error message
+allowed_origins = [
+    "http://localhost:5173",       # Standard local development
+    "http://127.0.0.1:5173",      # Alternative localhost
+    frontend_origin_codespace      # Specific Codespaces frontend origin
+]
+logging.info(f"Configuring CORS for specific origins: {allowed_origins}")
+# Apply CORS rules specifically to routes starting with /api/
+CORS(app, resources={r"/api/*": {"origins": allowed_origins}})
 # --- End CORS Configuration ---
 
 
