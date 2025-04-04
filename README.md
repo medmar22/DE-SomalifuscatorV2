@@ -1,104 +1,152 @@
-# SomalifuscatorV2 Deobfuscator
+# Somalifuscator Toolbox UI - FLYBI
 
-## Overview
+A user-friendly web interface built with Vite and React for interacting with the original SomalifuscatorV2 batch file obfuscator by KingKDot and a custom Python deobfuscator script. This UI allows users to easily obfuscate or deobfuscate `.bat` and `.cmd` files.
 
-This Python script is designed to deobfuscate Windows Batch files (`.bat`, `.cmd`) that have been processed by the **SomalifuscatorV2** obfuscator. It aims to reverse the primary obfuscation techniques employed by SomalifuscatorV2 (based on analysis of its source code) to restore the original script's logic and readability.
+![image](https://i.postimg.cc/x17cyzSy/image.png)
 
-The deobfuscation process involves multiple steps, including character substitution reversal, code structure reconstruction (scrambling reversal), and removal of injected helper code.
 
 ## Features
 
-*   **Character Deobfuscation:** Reverses multiple character encoding/substitution methods:
-    *   Caesar Cipher substitution (requires definition lines like `set a=b` to be present).
-    *   Environment Variable Slicing (e.g., `%PUBLIC:~3,1%`).
-    *   `%KDOT%` Variable Slicing (requires `set KDOT=...` line).
-    *   Simple Junk Variable Wrapping (e.g., `%random%C%random%`).
-*   **Scrambling Reversal:** Reconstructs the original code order for blocks moved by the Scrambler:
-    *   Identifies the `goto :EOF` marker inserted by the scrambler.
-    *   Parses scrambled code blocks located after the marker.
-    *   Finds jump setups (`set /a ans=...`, `goto %ans%`) in the main code.
-    *   Attempts to evaluate the `set /a` math expression to find the target label.
-    *   Replaces jump setups with the corresponding original code block.
-*   **Code Cleanup:** Removes known artifacts introduced by the obfuscator:
-    *   Header comments (`::Made by K.Dot...`).
-    *   `chcp 65001 > nul` line.
-    *   Caesar cipher variable definition lines (`set a=b`, etc.).
-    *   Initial redirection check line (`>nul 2>&1 && exit...`).
-    *   Leftover obfuscation markers (`%escape%`, `%STOP_OBF_HERE%`).
-*   **Encoding Handling:** Detects and handles UTF-16 LE BOM; attempts decoding as UTF-8 or a common fallback (CP1252).
-*   **Verbose Logging:** Optional detailed step-by-step output for debugging (`-v` flag).
+*   **Upload:** Drag & drop or browse to upload `.bat` or `.cmd` files.
+*   **Obfuscate:** Process the uploaded file using the original [SomalifuscatorV2](https://github.com/KingKDot/SomalifuscatorV2.git) script via a Python backend.
+*   **Deobfuscate:** Process the uploaded file using the included custom `deobfuscator.py` script via the Python backend.
+*   **Example Script:** Load a sample batch script for quick testing and demonstration.
+*   **Side-by-Side View:** Compare the original uploaded code with the processed (obfuscated or deobfuscated) code.
+*   **Copy to Clipboard:** Easily copy the original or processed code.
+*   **Responsive Design:** Styled with Tailwind CSS for usability on different screen sizes.
 
-## Requirements
+## Tech Stack
 
-*   Python 3.7+ (due to usage of `pathlib`, type hints, f-strings)
-*   Standard Python libraries (`re`, `os`, `argparse`, `math`, `pathlib`, `typing`, `string`). No external packages need to be installed.
+*   **Frontend:**
+    *   React 18
+    *   Vite (Build Tool & Dev Server)
+    *   TypeScript
+    *   Tailwind CSS (Styling)
+    *   Node.js / npm (Package Management)
+*   **Backend:**
+    *   Python 3
+    *   Flask (Web Framework)
+    *   Flask-CORS (Cross-Origin Resource Sharing)
+    *   Supabase (Optional, for potential future database interactions - client included)
+*   **Development:**
+    *   `concurrently` (To run frontend and backend servers simultaneously)
+    *   GitHub Codespaces (Tested Environment)
 
-## Installation
+## Getting Started
 
-No installation is required. Simply save the script as a `.py` file (e.g., `deobfuscator.py`).
+These instructions cover setting up the project locally or within a development environment like GitHub Codespaces.
 
-## Usage
+### Prerequisites
 
-Run the script from your command line or terminal:
+*   [Node.js](https://nodejs.org/) (v18 or later recommended)
+*   [npm](https://www.npmjs.com/) (comes with Node.js)
+*   [Python](https://www.python.org/) (v3.10 or later recommended)
+*   [pip](https://pip.pypa.io/en/stable/installation/) (comes with Python)
+*   [Git](https://git-scm.com/)
 
-```bash
-python deobfuscator.py <input_file> [options]
+### Installation
+
+1.  **Clone the Repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd <your-repository-directory-name> # e.g., cd DE-SomalifuscatorV2
+    ```
+
+2.  **Set up Backend:**
+    *   **Place Original Obfuscator:** Ensure the code for the original SomalifuscatorV2 is located inside the `backend/` directory in a folder named `OG CODE`. If you haven't cloned it yet:
+        ```bash
+        cd backend
+        git clone https://github.com/KingKDot/SomalifuscatorV2.git "OG CODE"
+        cd ..
+        ```
+    *   **Install Backend Dependencies:** Navigate to the backend directory and install requirements for *both* the Flask app and the original obfuscator:
+        ```bash
+        cd backend
+        pip install -r requirements.txt
+        pip install -r "OG CODE/requirements.txt"
+        cd ..
+        ```
+    *   *(Optional)* **Environment Variables:** Create a `.env` file inside the `backend/` directory for Supabase keys if you plan to use database integration. See the Environment Variables section below.
+
+3.  **Install Frontend Dependencies:**
+    From the project **root directory** (`DE-SomalifuscatorV2/`), run:
+    ```bash
+    npm install
+    ```
+
+### Running the Application
+
+This project uses `concurrently` to start both the Vite frontend development server and the Flask backend server with a single command.
+
+1.  **Start Both Servers:**
+    From the project **root directory**, run:
+    ```bash
+    npm run dev
+    ```
+
+2.  **Accessing the UI:**
+    *   **Local Development:** Open your browser and navigate to `http://localhost:5173`.
+    *   **GitHub Codespaces:**
+        *   When you run `npm run dev`, Codespaces should automatically detect the running servers and forward the necessary ports.
+        *   Go to the **"Ports"** tab in your VS Code Codespace interface (usually in the bottom panel).
+        *   Find the entry for port **5173** (the frontend). Make sure its "Visibility" is set to **Public**.
+        *   Click on the **"Local Address"** URL listed next to port 5173. It will look something like `https://[your-codespace-name]-[hash]-5173.app.github.dev/`. **Use this URL** in your browser.
+        *   The backend on port 5001 should also be forwarded (ensure it's Public too). The frontend is configured to automatically detect the Codespaces environment and adjust the API endpoint URL it calls.
+
+The Vite server (`[0]` or `[dev:vite]` in the terminal) handles the frontend, while the Flask server (`[1]` or `[dev:backend]`) handles the API requests for obfuscation/deobfuscation.
+
+## Environment Variables (Backend)
+
+The backend uses a `.env` file located in the `backend/` directory to manage sensitive keys, primarily for Supabase integration (which is currently optional in the provided code but can be expanded).
+
+Create a file named `backend/.env` and add the following variables if needed:
+
+```dotenv
+# --- Supabase Credentials (Optional) ---
+# Get these from your Supabase project dashboard
+SUPABASE_URL=YOUR_SUPABASE_PROJECT_URL
+SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_PUBLIC_KEY
+SUPABASE_SERVICE_KEY=YOUR_SUPABASE_SERVICE_ROLE_SECRET_KEY
+
+# --- Flask Settings (Optional) ---
+# FLASK_DEBUG=true # Set to 'false' for production builds
+# PORT=5001      # Default port if not set
 ```
 
-**Arguments:**
+**IMPORTANT:** Never commit your actual `.env` file containing secrets to Git. Use a `.env.example` file to document required variables if collaborating. The provided `.gitignore` file prevents `.env` from being tracked. If Supabase keys are not provided, the integration will be disabled, but the core obfuscation/deobfuscation will still work.
 
-*   `input_file`: **Required**. The path to the obfuscated Batch file you want to deobfuscate.
+## Project Structure
 
-**Options:**
-
-*   `-o OUTPUT`, `--output OUTPUT`: Specifies the path for the deobfuscated output file.
-    *   If omitted, the output will be saved in the same directory as the input file, with `_deobf` appended to the original filename (e.g., `script_obf.bat` -> `script_obf_deobf.bat`).
-*   `-v`, `--verbose`: Enables verbose logging, showing detailed steps and warnings during the deobfuscation process.
-
-**Examples:**
-
-1.  **Basic Deobfuscation:**
-    ```bash
-    python deobfuscator.py C:\path\to\obfuscated_script.bat
-    ```
-    *(Output will be saved as `C:\path\to\obfuscated_script_deobf.bat`)*
-
-2.  **Specify Output File:**
-    ```bash
-    python deobfuscator.py obfuscated_script.bat -o restored_script.bat
-    ```
-
-3.  **Enable Verbose Logging:**
-    ```bash
-    python deobfuscator.py obfuscated_script.bat -v
-    ```
-
-## How It Works
-
-The deobfuscator follows a pipeline approach:
-
-1.  **Read & Preprocess:** Reads the input file, handles potential UTF-16 LE Byte Order Mark (BOM), and determines the likely encoding (UTF-8 or fallback).
-2.  **Extract Settings:** Scans the initial lines to find the `set KDOT=...` value and builds a reverse mapping for the Caesar cipher based on `set a=b`, `set b=c`, etc. definitions.
-3.  **Deobfuscate Characters:** Iteratively applies regular expressions to replace obfuscated character patterns (`%VAR:~n,1%`, `%KDOT:~n,1%`, `%char%`, `%junk%C%junk%`) with their original characters. This step is crucial before structural analysis.
-4.  **Reverse Scrambling:**
-    *   Locates the `goto :EOF` marker added by the scrambler.
-    *   Parses the code blocks appearing after this marker, mapping target labels to their (character-deobfuscated) original code line.
-    *   Searches the main code (before `goto :EOF`) for the scrambler's jump pattern (`set /a ans=MATH_EXPR`, `goto %ans%`).
-    *   Uses `safe_eval_batch_math` to attempt evaluating `MATH_EXPR` and determine the target label number.
-    *   Replaces the jump pattern in the main code with the corresponding code line retrieved from the parsed blocks.
-5.  **Remove Junk Code:** Filters out lines matching known patterns associated with the obfuscator's setup and comments.
-6.  **Final Cleanup:** Removes extra blank lines and trims whitespace for better readability.
-7.  **Write Output:** Saves the processed lines to the specified output file using UTF-8 encoding and standard Windows CRLF line endings.
-
-## Limitations & Known Issues
-
-*   **Complex `set /a` Math:** The script uses a basic math evaluator (`safe_eval_batch_math`) for the scrambler's jump logic. Very complex or intentionally tricky Batch math expressions might not be evaluated correctly, preventing scrambling reversal for those blocks.
-*   **Unknown Anti-Analysis/Bloat:** Techniques used by SomalifuscatorV2's `AntiChanges`, `AntiConsole`, `DeadCode`, or `pogdog` components are not explicitly reversed unless they leave easily identifiable line patterns. Remnants of this code may persist in the output.
-*   **Obfuscator Variations:** This deobfuscator is based on the analyzed source code of SomalifuscatorV2. Significant changes or different versions of the obfuscator might use techniques not handled by this script.
-*   **Environment Variable Accuracy:** Environment variable slicing (`%VAR:~n,1%`) resolution depends on the values defined in `ENV_VAR_VALUES` or retrieved via `os.environ`. If the system where the script was obfuscated had significantly different paths, the deobfuscation might be inaccurate for those specific characters.
-*   **Batch Syntax Complexity:** While aiming for robustness, extremely complex or unusual Batch syntax (e.g., deeply nested parentheses, complex redirection combined with variable expansion) might interfere with the character replacement logic in edge cases.
-
-## License
-
-This script is provided as-is. You are free to use, modify, and distribute it. Please refer to standard open-source licenses like MIT if formal licensing is required. (Consider adding an actual LICENSE file if distributing widely).
 ```
+DE-SomalifuscatorV2/
+├── backend/                  # Python Flask backend
+│   ├── OG CODE/              # Original SomalifuscatorV2 code MUST be here
+│   │   ├── src/
+│   │   └── requirements.txt  # Requirements for original script
+│   ├── app.py                # Flask application logic
+│   ├── deobfuscator.py       # Custom Python deobfuscator script
+│   ├── requirements.txt      # Requirements for Flask backend
+│   └── .env                  # (Optional) Environment variables (ignored by git)
+├── node_modules/             # Frontend dependencies (ignored by git)
+├── public/                   # Static assets for Vite frontend
+│   └── vite.svg
+├── src/                      # Frontend React source code
+│   ├── components/           # React UI components
+│   ├── App.tsx               # Main application component
+│   ├── index.css             # Global styles & Tailwind directives
+│   └── main.tsx              # Frontend entry point
+├── .gitignore                # Specifies intentionally untracked files
+├── index.html                # Root HTML file for Vite
+├── package.json              # Frontend dependencies and scripts
+├── package-lock.json         # Frontend dependency lock file
+├── postcss.config.js         # PostCSS configuration (for Tailwind)
+├── tailwind.config.js        # Tailwind CSS configuration
+├── tsconfig.json             # TypeScript configuration for frontend
+├── tsconfig.node.json        # TypeScript configuration for Vite config
+├── vite.config.ts            # Vite configuration
+└── README.md                 # This file
+```
+
+## Related Links
+
+*   **Original SomalifuscatorV2:** [https://github.com/KingKDot/SomalifuscatorV2.git](https://github.com/KingKDot/SomalifuscatorV2.git)
