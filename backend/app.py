@@ -19,11 +19,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 app = Flask(__name__)
 
-# --- Temporarily Allow All Origins for CORS Debugging ---
+# --- Simplest CORS Initialization - Apply Globally ---
 # !! IMPORTANT: This is insecure for production. !!
 # !! Change back to specific origins once CORS is confirmed working. !!
-logging.warning("Applying WIDE OPEN CORS policy (origins='*') for debugging!")
-CORS(app, resources={r"/api/*": {"origins": "*"}}) # Allow all origins for requests to /api/*
+# Applying CORS globally with default settings (often allows '*')
+# as the previous resource-specific approach wasn't working.
+logging.warning("Applying WIDE OPEN CORS policy GLOBALLY (CORS(app)) for debugging!")
+CORS(app) # Apply CORS to the entire app
 # --- End CORS Configuration ---
 
 
