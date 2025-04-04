@@ -68,7 +68,7 @@ RE_SCRAMBLED_BLOCK = re.compile(
     # Matches the target label ":NUMBER"
     r"^:(\d+)\s*\n"
     # Non-greedily capture everything until the return logic starts.
-    # This group (2) contains the original code plus potentially injected anti-methods.
+    # This group (2) contains the original code plus potentially injected anti-methods/deadcode.
     r"([\s\S]*?)\n"
     # Matches the return logic: set /a ans = ..., goto %ans%
     # We don't need to capture this part, just ensure it exists.
@@ -79,16 +79,16 @@ RE_SCRAMBLED_BLOCK = re.compile(
 
 
 # Regex for Lines/Blocks to Remove (Applied *AFTER* Character Deobfuscation)
-# These patterns match the DEOBFUSCATED forms of the junk/anti-method code.
+# These patterns match the DEOBFUSCATED forms of the junk/anti-method/dead code.
 RE_JUNK_TO_REMOVE = [
-    # Static lines
+    # --- Static Obfuscator Lines ---
     re.compile(r"^\s*::Made by K\.Dot using SomalifuscatorV2", re.IGNORECASE),
     re.compile(r"^\s*chcp 65001 > nul", re.IGNORECASE),
     re.compile(r"^\s*set\s+[a-z]=[a-z]", re.IGNORECASE), # Base Caesar defs
     re.compile(r"^\s*>nul 2>&1 && exit >nul 2>&1 \|\| cls", re.IGNORECASE), # Initial check line
     re.compile(r"^\s*(goto\s+:eof|exit\s*/b\s*0)\s*$", re.IGNORECASE), # Remove scrambler's goto EOF
 
-    # AntiConsole VBS block lines
+    # --- AntiConsole VBS Block ---
     re.compile(r'^\s*if defined redo goto :KDOTUP', re.IGNORECASE),
     re.compile(r'^\s*set "redo=1"', re.IGNORECASE),
     re.compile(r'^\s*echo CreateObject\("Wscript\.Shell"\)\.Run "%~f0", 0, True > temp\.vbs', re.IGNORECASE),
@@ -96,30 +96,56 @@ RE_JUNK_TO_REMOVE = [
     re.compile(r'^\s*del temp\.vbs', re.IGNORECASE),
     re.compile(r'^\s*:KDOTUP', re.IGNORECASE),
 
-    # AntiChanges checks (deobfuscated forms)
-    re.compile(r'^\s*echo @echo off >> kdot\w+\.bat', re.IGNORECASE), # Start of first_line_echo_check
+    # --- AntiChanges Checks (Deobfuscated) ---
+    re.compile(r'^\s*echo @echo off >> kdot\w+\.bat', re.IGNORECASE), # first_line_echo_check start
+    re.compile(r'^\s*call kdot\w+\.bat', re.IGNORECASE), # first_line_echo_check end (added)
     re.compile(r'^\s*echo %cmdcmdline% \| find /i "%~f0">nul \|\| exit /b 1', re.IGNORECASE), # double_click_check
     re.compile(r'^\s*echo %logonserver% \| findstr /i "DADDYSERVER" >nul && exit', re.IGNORECASE), # anti_triage
     re.compile(r'^\s*ping .* www\.google\.com .* \|\| exit', re.IGNORECASE), # anti_wifi
-
-    # AntiChanges VM checks (common patterns)
+    # VM Checks (common patterns)
     re.compile(r'^\s*for /f "tokens=2 delims==" %%a in \(\'wmic computersystem get manufacturer /value\'\) do set manufacturer=%%a', re.IGNORECASE),
     re.compile(r'^\s*if "%manufacturer%"=="Microsoft Corporation" if "%model%"=="Virtual Machine" exit', re.IGNORECASE),
     re.compile(r'^\s*if "%manufacturer%"=="VMware, Inc\." exit', re.IGNORECASE),
     re.compile(r'^\s*if "%model%"=="VirtualBox" exit', re.IGNORECASE),
     re.compile(r'^\s*powershell.*Get-WmiObject Win32_ComputerSystem.*Virtual.*taskkill', re.IGNORECASE),
     re.compile(r'^\s*powershell.*gcim Win32_PhysicalMemory.*sum /1gb -lt 4.*taskkill', re.IGNORECASE), # RAM check
-    # Generic PowerShell invocation removal (catches AntiChanges byte_check and some vm_test)
+    # Generic PowerShell/WMIC Calls (catch-alls for other checks)
     re.compile(r'^\s*powershell(\.exe)?\s+(-NoLogo|-NoP|-NonI|-W Hidden|-EP Bypass|-EncodedCommand|-Command)\s+', re.IGNORECASE),
-    # Generic wmic call removal (if specific checks missed)
-    re.compile(r'^\s*wmic\s+', re.IGNORECASE),
+    re.compile(r'^\s*wmic\s+', re.IGNORECASE), # Catch generic WMIC calls if specific checks missed
 
-    # Caesar `for /l` wrapper
-    re.compile(r'^\s*for /l %%\w in \(\d+, \d+, \d+\) do \( set \w+=\w+ \)', re.IGNORECASE), # Matches simple form like set a=b
+    # --- DeadCode Injections (Deobfuscated) ---
+    re.compile(r'^\s*doskey\s+\w+=.*', re.IGNORECASE), # doskey alias=command
+    # Simple dead commands
+    re.compile(r'^\s*mshta\s*$', re.IGNORECASE),
+    re.compile(r'^\s*timeout \d+ >nul\s*$', re.IGNORECASE), # Matches timeout 0 >nul or timeout N >nul
+    re.compile(r'^\s*echo %random% >nul\s*$', re.IGNORECASE),
+    re.compile(r'^\s*rundll32\s*$', re.IGNORECASE), # Basic rundll32 call likely dead
+    re.compile(r'^\s*cd %cd%\s*$', re.IGNORECASE),
+    re.compile(r'^\s*wscript /b\s*$', re.IGNORECASE),
+    re.compile(r'^\s*doskey /listsize=0\s*$', re.IGNORECASE),
+    re.compile(r'^\s*powershell(\.exe)?\s+(-nop)?\s+(-c)?\s+"Write-Host -NoNewLine \$null"\s*$', re.IGNORECASE), # Specific dead PS
+    # Dead for /l loop (that runs once) - Captures the whole line
+    re.compile(r'^\s*for /l %%\w in \(\d+, \d+, \d+\) do \(.*\)', re.IGNORECASE),
+    # Dead if statements (matching common structures) - These are harder to catch perfectly but target common forms
+    re.compile(r'^\s*if %random% equ \d+ \(.*\) else \(.*\)', re.IGNORECASE),
+    re.compile(r'^\s*if not 0 neq 0 \(.*\) else \(.*\)', re.IGNORECASE),
+    re.compile(r'^\s*if exist C:\\Windows\\System32 \(.*\) else \(.*\)', re.IGNORECASE), # Usually true branch runs
+    re.compile(r'^\s*if not %cd% == %cd% \(.*\) else \(.*\)', re.IGNORECASE), # Usually true branch runs (else)
+    re.compile(r'^\s*if 0 equ 0 \(.*\) else \(.*\)', re.IGNORECASE), # Usually true branch runs
+    re.compile(r'^\s*if exist C:\\Windows\\System3\s*\(.*\) else \(.*\)', re.IGNORECASE), # Usually true branch runs (else) - added optional space check
+    re.compile(r'^\s*if %cd% == %cd% \(.*\) else \(.*\)', re.IGNORECASE), # Usually true branch runs
+    re.compile(r'^\s*if chcp leq 1 \(.*\) else \(.*\)', re.IGNORECASE),
+    re.compile(r'^\s*if %CD% == %__CD__% \(.*\) else \(.*\)', re.IGNORECASE), # Needs __CD__ check which isn't standard
+    # Dead "better_kill" calls (match pattern, ignore specific bad word)
+    re.compile(r'^\s*call \w+\.(exe|dll)\s*(>nul)?\s*(2>nul)?', re.IGNORECASE), # Made redirection optional
+    re.compile(r'^\s*echo \w+\.(exe|dll)\s*(>nul)?\s*(2>nul)?', re.IGNORECASE), # Made redirection optional
+    re.compile(r'^\s*forfiles /p %cd% /m \w+\.(exe|dll) /c \'cmd /c start @file\'\s*(>nul)?\s*(2>nul)?', re.IGNORECASE), # Made redirection optional
 
-    # Placeholders if used
-    re.compile(r"^\s*rem ANTICHANGES MARKER", re.IGNORECASE),
-    re.compile(r"^\s*rem DEADCODE MARKER", re.IGNORECASE),
+    # --- General Junk/Placeholders ---
+    # Caesar `for /l` wrapper for simple set commands (already caught by the dead for /l above, keep commented for reference)
+    # re.compile(r'^\s*for /l %%\w in \(\d+, \d+, \d+\) do \( set \w+=\w+ \)', re.IGNORECASE),
+    re.compile(r"^\s*rem ANTICHANGES MARKER", re.IGNORECASE), # Example placeholders
+    re.compile(r"^\s*rem DEADCODE MARKER", re.IGNORECASE),   # Example placeholders
 ]
 
 
@@ -192,7 +218,7 @@ def read_and_preprocess(file_path: Path) -> Optional[List[str]]:
         enc = 'utf-16le'
         content_bytes = content_bytes[2:]
     else:
-        # Try UTF-8 first, then fallback (assuming cp1252 is common)
+        # Try UTF-8 first, then fallback
         try:
             content_bytes.decode('utf-8', errors='strict')
             enc = 'utf-8'
@@ -417,7 +443,7 @@ def reverse_scrambling(lines: List[str]) -> List[str]:
     # Iterate through potential blocks using the regex
     for match in RE_SCRAMBLED_BLOCK.finditer(scrambled_part_text):
         label = match.group(1)
-        # Group 2 contains original code + potentially injected anti-methods.
+        # Group 2 contains original code + potentially injected anti-methods/deadcode.
         # Take the first non-empty line as the most likely original code.
         potential_code_lines = [ln for ln in match.group(2).strip().splitlines() if ln.strip()]
         original_code = ""
@@ -556,7 +582,7 @@ def deobfuscate_file(input_path: Path, output_path: Path):
     scramble_reversed_lines = reverse_scrambling(char_deobfuscated_lines)
 
     # 5. Remove Inserted/Known Junk Lines (Operates AFTER scrambling reversal & char deobf)
-    print("\n[Step 4/5] Removing known inserted lines and anti-methods...")
+    print("\n[Step 4/5] Removing known inserted lines, anti-methods and dead code...")
     removed_junk_lines = remove_inserted_code(scramble_reversed_lines)
 
     # 6. Final Cleanup
